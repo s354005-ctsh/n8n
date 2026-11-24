@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>自動化商店訂單系統</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen flex flex-col">
+
+  <!-- 頂部導覽列 -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center shadow-sm">
+          <i class="fa-solid fa-store text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">自動化商店訂單系統</h1>
+          <p class="text-xs text-slate-500 hidden sm:block">GAS 即時庫存同步 × n8n 自動化結帳</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button onclick="fetchProducts()" class="text-sm text-slate-600 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
+          <i class="fa-solid fa-rotate-right" id="refresh-icon"></i>
+          <span>重新同步庫存</span>
+        </button>
+        <a href="#cart-section" class="lg:hidden relative bg-indigo-600 text-white px-3.5 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm">
+          <i class="fa-solid fa-cart-shopping"></i>
+          <span id="mobile-cart-badge">0</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- 全域 Alert 提示訊息區塊 -->
+  <div class="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 mt-4">
+    <div id="alert-box" class="hidden rounded-xl p-4 border shadow-sm transition-all duration-300 flex items-start justify-between gap-3" role="alert">
+      <div class="flex items-start gap-3">
+        <i id="alert-icon" class="fa-solid fa-circle-info mt-0.5 text-lg"></i>
+        <div>
+          <h3 id="alert-title" class="font-semibold text-sm">系統通知</h3>
+          <p id="alert-message" class="text-sm mt-0.5 whitespace-pre-line"></p>
+        </div>
+      </div>
+      <button onclick="hideAlert()" class="text-current opacity-60 hover:opacity-100 p-1">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- 主要內容區：RWD 雙欄排版 -->
+  <main class="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex-1">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+
+      <!-- 左側 / 上方：商品列表區 (佔 7 欄) -->
+      <section class="lg:col-span-7 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div>
+            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-boxes-stacked text-indigo-600"></i>
+              商品目錄
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5" id="product-count-text">正在連線至 Google Apps Script 讀取商品...</p>
+          </div>
+          <!-- 簡易搜尋過濾 -->
+          <div class="relative w-full sm:w-60">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+            <input type="text" id="search-input" oninput="filterProducts()" placeholder="搜尋商品名稱或編號..."
+              class="w-full pl-9 pr-3 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition" />
+          </div>
+        </div>
+
+        <!-- 載入中骨架屏 -->
+        <div id="loading-skeleton" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 animate-pulse space-y-3">
+            <div class="h-40 bg-slate-200 rounded-xl"></div>
+            <div class="h-5 bg-slate-200 rounded w-2/3"></div>
+            <div class="h-4 bg-slate-200 rounded w-full"></div>
+            <div class="flex justify-between items-center pt-2">
+              <div class="h-6 bg-slate-200 rounded w-1/4"></div>
+              <div class="h-9 bg-slate-200 rounded w-1/3"></div>
+            </div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 animate-pulse space-y-3">
+            <div class="h-40 bg-slate-200 rounded-xl"></div>
+            <div class="h-5 bg-slate-200 rounded w-1/2"></div>
+            <div class="h-4 bg-slate-200 rounded w-5/6"></div>
+            <div class="flex justify-between items-center pt-2">
+              <div class="h-6 bg-slate-200 rounded w-1/4"></div>
+              <div class="h-9 bg-slate-200 rounded w-1/3"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 商品卡片容器 -->
+        <div id="product-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 hidden"></div>
+      </section>
+
+      <!-- 右側 / 下方：即時購物車與結帳表單 (佔 5 欄) -->
+      <section id="cart-section" class="lg:col-span-5 lg:sticky lg:top-24 space-y-6">
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <!-- 購物車標題 -->
+          <div class="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+            <h2 class="font-bold text-base flex items-center gap-2">
+              <i class="fa-solid fa-cart-shopping text-indigo-400"></i>
+              即時購物車
+            </h2>
+            <button onclick="clearCart()" id="clear-cart-btn" class="hidden text-xs text-slate-300 hover:text-white underline">
+              清空購物車
+            </button>
+          </div>
+
+          <!-- 購物車商品清單 -->
+          <div class="p-5">
+            <div id="empty-cart-msg" class="text-center py-8 text-slate-400">
+              <i class="fa-solid fa-basket-shopping text-4xl mb-2 opacity-40"></i>
+              <p class="text-sm">購物車目前是空的</p>
+              <p class="text-xs mt-1">請從左側選擇商品加入購物車</p>
+            </div>
+
+            <div id="cart-items-container" class="space-y-3 max-h-72 overflow-y-auto pr-1 hidden"></div>
+
+            <!-- 總金額計算區 -->
+            <div class="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between">
+              <span class="text-sm font-medium text-slate-600">訂單總金額 (<span id="total-qty">0</span> 件商品)</span>
+              <span class="text-2xl font-extrabold text-indigo-600">NT$ <span id="total-amount">0</span></span>
+            </div>
+          </div>
+
+          <!-- 結帳表單區 -->
+          <form id="checkout-form" onsubmit="handleCheckout(event)" class="bg-slate-50/80 p-5 border-t border-slate-200 space-y-4">
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-file-invoice text-indigo-600"></i>
+              訂購人資訊與結帳
+            </h3>
+
+            <div>
+              <label for="customer-name" class="block text-xs font-semibold text-slate-700 mb-1">
+                姓名 <span class="text-rose-500">*</span>
+              </label>
+              <input type="text" id="customer-name" name="name" required placeholder="請輸入您的真實姓名"
+                class="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition" />
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label for="customer-phone" class="block text-xs font-semibold text-slate-700 mb-1">
+                  手機號碼 <span class="text-rose-500">*</span>
+                </label>
+                <input type="tel" id="customer-phone" name="phone" required placeholder="0912-345-678"
+                  class="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition" />
+              </div>
+
+              <div>
+                <label for="customer-email" class="block text-xs font-semibold text-slate-700 mb-1">
+                  電子郵件 <span class="text-rose-500">*</span>
+                </label>
+                <input type="email" id="customer-email" name="email" required placeholder="example@email.com"
+                  class="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition" />
+              </div>
+            </div>
+
+            <div>
+              <label for="customer-note" class="block text-xs font-semibold text-slate-700 mb-1">
+                訂單備註
+              </label>
+              <textarea id="customer-note" name="note" rows="2" placeholder="例如：統編、希望送達時段、特殊需求..."
+                class="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition resize-none"></textarea>
+            </div>
+
+            <button type="submit" id="submit-btn"
+              class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white font-bold text-sm rounded-xl shadow-md hover:shadow-lg transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-paper-plane" id="submit-icon"></i>
+              <span id="submit-text">確認送出訂單</span>
+            </button>
+          </form>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400 mt-auto">
+    自動化商店訂單系統 &copy; 2026 | Powered by Google Apps Script & n8n
+  </footer>
+
+  <script>
+    // ==========================================
+    // 1. 系統設定 (API Endpoints)
+    // ==========================================
+    const GAS_PRODUCTS_URL = 'https://script.google.com/macros/s/AKfycbz2-0uiEyWAjlYlySnm3CfLkr4OH8UOFccWsVA624mykmjWQb-XvJGvUyZtwbNSnEE0hw/exec';
+    const N8N_WEBHOOK_URL = 'http://localhost:5678/webhook-test/ctsh';
+
+    let allProducts = [];
+    let cart = [];
+
+    // ==========================================
+    // 2. 初始化：網頁載入時讀取商品與庫存
+    // ==========================================
+    document.addEventListener('DOMContentLoaded', () => {
+      fetchProducts();
+    });
+
+    /**
+     * 從物件中依據關鍵字模糊比對取得對應欄位的值
+     */
+    function getFieldByPattern(item, regexPattern) {
+      const matchedKey = Object.keys(item).find(key => regexPattern.test(key));
+      return matchedKey !== undefined ? item[matchedKey] : undefined;
+    }
+
+    /**
+     * 從值中萃取出純數字 (例如 "15 件" -> 15, "$1,200" -> 1200)
+     */
+    function extractNumber(val, fallback = 0) {
+      if (val === undefined || val === null || val === '') return fallback;
+      if (typeof val === 'number') return isNaN(val) ? fallback : val;
+      const cleaned = String(val).replace(/[^\d.-]/g, '');
+      const num = Number(cleaned);
+      return isNaN(num) || cleaned === '' ? fallback : num;
+    }
+
+    /**
+     * 從 Google Apps Script 取得商品資料
+     */
+    async function fetchProducts() {
+      const skeleton = document.getElementById('loading-skeleton');
+      const productGrid = document.getElementById('product-grid');
+      const countText = document.getElementById('product-count-text');
+      const refreshIcon = document.getElementById('refresh-icon');
+
+      skeleton.classList.remove('hidden');
+      productGrid.classList.add('hidden');
+      refreshIcon.classList.add('fa-spin');
+      countText.textContent = '正在從 Google Apps Script 載入商品與庫存...';
+
+      try {
+        // 加上時間戳參數避免瀏覽器快取舊庫存
+        const urlWithNoCache = `${GAS_PRODUCTS_URL}${GAS_PRODUCTS_URL.includes('?') ? '&' : '?'}t=${Date.now()}`;
+        const response = await fetch(urlWithNoCache, {
+          method: 'GET',
+          redirect: 'follow'
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP 錯誤狀態碼: ${response.status}`);
+        }
+
+        const rawData = await response.json();
+        console.log('GAS 原始回傳資料:', rawData);
+
+        if (rawData.status === 'error') {
+          throw new Error(rawData.message || 'GAS 回傳錯誤狀態');
+        }
+
+        const itemsArray = Array.isArray(rawData)
+          ? rawData
+          : (rawData.data || rawData.items || rawData.products || []);
+
+        // 標準化商品欄位 (智慧模糊比對中英文表頭)
+        allProducts = itemsArray.map((item, index) => {
+          const rawId = getFieldByPattern(item, /^(id|編號|商品編號|品號|sku)$/i);
+          const rawName = getFieldByPattern(item, /(name|title|商品名稱|品名|名稱)/i);
+          const rawPrice = getFieldByPattern(item, /(price|cost|價格|單價|售價|金額)/i);
+          const rawDesc = getFieldByPattern(item, /(desc|description|描述|規格|說明|備註)/i);
+          const rawImage = getFieldByPattern(item, /(image|img|photo|pic|圖片|照片)/i);
+          // 庫存欄位比對：支援 stock, qty, inventory, 庫存, 庫存量, 存量, 剩餘數量, 數量
+          const rawStock = getFieldByPattern(item, /(stock|qty|quantity|inventory|庫存|存量|剩餘|數量)/i);
+
+          return {
+            id: rawId !== undefined && rawId !== '' ? String(rawId) : `PROD-${index + 1}`,
+            name: rawName || `未命名商品 #${index + 1}`,
+            price: extractNumber(rawPrice, 0),
+            description: rawDesc || '精選優質商品，歡迎選購。',
+            image: rawImage ? String(rawImage).trim() : '',
+            stock: extractNumber(rawStock, 0)
+          };
+        });
+
+        renderProducts(allProducts);
+        const sheetInfo = rawData.sheetName ? `（來源分頁：${rawData.sheetName}）` : '';
+        countText.textContent = `共載入 ${allProducts.length} 項商品 ${sheetInfo}`;
+
+      } catch (error) {
+        console.error('讀取商品失敗:', error);
+        countText.textContent = '商品載入失敗';
+        showAlert(
+          'error',
+          '無法讀取商品資料',
+          `連線至 Google Apps Script 發生錯誤：${error.message}\n請確認 GAS 已更新為「新版本」並設為「所有人 (Anyone)」可存取。`
+        );
+      } finally {
+        skeleton.classList.add('hidden');
+        productGrid.classList.remove('hidden');
+        refreshIcon.classList.remove('fa-spin');
+      }
+    }
+
+    /**
+     * 渲染商品卡片
+     */
+    function renderProducts(products) {
+      const grid = document.getElementById('product-grid');
+      grid.innerHTML = '';
+
+      if (products.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-full bg-white rounded-2xl p-10 text-center border border-slate-200 text-slate-400">
+            <i class="fa-regular fa-folder-open text-4xl mb-2"></i>
+            <p class="text-sm">找不到符合的商品資料</p>
+          </div>
+        `;
+        return;
+      }
+
+      products.forEach(product => {
+        const isOutOfStock = product.stock <= 0;
+        const isLowStock = product.stock > 0 && product.stock <= 5;
+
+        const badgeClass = isOutOfStock
+          ? 'bg-rose-600 text-white'
+          : isLowStock
+            ? 'bg-amber-500 text-white'
+            : 'bg-white/95 text-slate-700';
+
+        const imgHtml = product.image
+          ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" class="w-full h-44 object-cover group-hover:scale-105 transition duration-300" onerror="this.onerror=null;this.parentElement.innerHTML='<div class=\\'w-full h-44 bg-gradient-to-br from-indigo-50 to-slate-100 flex items-center justify-center text-indigo-300\\'><i class=\\'fa-solid fa-box-open text-4xl\\'></i></div>';" />`
+          : `<div class="w-full h-44 bg-gradient-to-br from-indigo-50 to-slate-100 flex items-center justify-center text-indigo-300">
+               <i class="fa-solid fa-box-open text-4xl"></i>
+             </div>`;
+
+        const card = document.createElement('div');
+        card.className = `bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-sm hover:shadow-md transition flex flex-col justify-between group ${isOutOfStock ? 'opacity-75' : ''}`;
+        card.innerHTML = `
+          <div>
+            <div class="relative overflow-hidden bg-slate-100">
+              ${imgHtml}
+              <span class="absolute top-2.5 right-2.5 ${badgeClass} backdrop-blur-xs text-xs font-bold px-2.5 py-1 rounded-full shadow-xs">
+                ${isOutOfStock ? '已售完 (0)' : `庫存: ${product.stock}`}
+              </span>
+            </div>
+            <div class="p-4">
+              <div class="text-xs text-indigo-600 font-mono mb-1">${escapeHtml(product.id)}</div>
+              <h3 class="font-bold text-slate-900 text-base line-clamp-1">${escapeHtml(product.name)}</h3>
+              <p class="text-xs text-slate-500 mt-1.5 line-clamp-2 min-h-[2rem]">${escapeHtml(product.description)}</p>
+            </div>
+          </div>
+          <div class="px-4 pb-4 pt-2 flex items-center justify-between border-t border-slate-100">
+            <div>
+              <span class="text-xs text-slate-400">NT$</span>
+              <span class="text-lg font-extrabold text-slate-900">${product.price.toLocaleString()}</span>
+            </div>
+            <button onclick="addToCart('${escapeHtml(product.id)}')" ${isOutOfStock ? 'disabled' : ''}
+              class="px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                isOutOfStock
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white active:scale-95'
+              }">
+              <i class="fa-solid ${isOutOfStock ? 'fa-ban' : 'fa-plus'}"></i>
+              <span>${isOutOfStock ? '無庫存' : '加入購物車'}</span>
+            </button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    /**
+     * 搜尋過濾商品
+     */
+    function filterProducts() {
+      const keyword = document.getElementById('search-input').value.trim().toLowerCase();
+      const filtered = allProducts.filter(p =>
+        p.name.toLowerCase().includes(keyword) ||
+        p.description.toLowerCase().includes(keyword) ||
+        p.id.toLowerCase().includes(keyword)
+      );
+      renderProducts(filtered);
+    }
+
+    // ==========================================
+    // 3. 購物車邏輯 (新增、修改數量、刪除、計算)
+    // ==========================================
+    function addToCart(productId) {
+      const product = allProducts.find(p => p.id === productId);
+      if (!product || product.stock <= 0) return;
+
+      const existingItem = cart.find(item => item.id === productId);
+      if (existingItem) {
+        if (existingItem.qty >= product.stock) {
+          showAlert('warning', '庫存上限提醒', `「${product.name}」目前庫存僅剩 ${product.stock} 件，無法再增加。`);
+          return;
+        }
+        existingItem.qty += 1;
+      } else {
+        cart.push({
+          id: product.id,
+          name: product.name,
+          price: product.price,
+          qty: 1,
+          maxStock: product.stock
+        });
+      }
+
+      renderCart();
+    }
+
+    function updateQty(productId, delta) {
+      const itemIndex = cart.findIndex(item => item.id === productId);
+      if (itemIndex === -1) return;
+
+      const item = cart[itemIndex];
+      const newQty = item.qty + delta;
+
+      if (newQty <= 0) {
+        cart.splice(itemIndex, 1);
+      } else if (newQty > item.maxStock) {
+        showAlert('warning', '庫存不足', `「${item.name}」目前庫存僅剩 ${item.maxStock} 件。`);
+        return;
+      } else {
+        item.qty = newQty;
+      }
+
+      renderCart();
+    }
+
+    function removeFromCart(productId) {
+      cart = cart.filter(item => item.id !== productId);
+      renderCart();
+    }
+
+    function clearCart() {
+      cart = [];
+      renderCart();
+    }
+
+    function renderCart() {
+      const container = document.getElementById('cart-items-container');
+      const emptyMsg = document.getElementById('empty-cart-msg');
+      const clearBtn = document.getElementById('clear-cart-btn');
+      const totalQtyEl = document.getElementById('total-qty');
+      const totalAmountEl = document.getElementById('total-amount');
+      const mobileBadge = document.getElementById('mobile-cart-badge');
+
+      if (cart.length === 0) {
+        container.classList.add('hidden');
+        emptyMsg.classList.remove('hidden');
+        clearBtn.classList.add('hidden');
+        totalQtyEl.textContent = '0';
+        totalAmountEl.textContent = '0';
+        mobileBadge.textContent = '0';
+        return;
+      }
+
+      container.classList.remove('hidden');
+      emptyMsg.classList.add('hidden');
+      clearBtn.classList.remove('hidden');
+      container.innerHTML = '';
+
+      let totalQty = 0;
+      let totalAmount = 0;
+
+      cart.forEach(item => {
+        const subtotal = item.price * item.qty;
+        totalQty += item.qty;
+        totalAmount += subtotal;
+
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200/70';
+        row.innerHTML = `
+          <div class="min-w-0 flex-1">
+            <h4 class="text-sm font-bold text-slate-800 truncate">${escapeHtml(item.name)}</h4>
+            <p class="text-xs text-slate-500 mt-0.5">NT$ ${item.price.toLocaleString()} × ${item.qty} = <span class="font-semibold text-indigo-600">NT$ ${subtotal.toLocaleString()}</span></p>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" onclick="updateQty('${escapeHtml(item.id)}', -1)"
+              class="w-7 h-7 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 flex items-center justify-center text-xs transition">
+              <i class="fa-solid fa-minus"></i>
+            </button>
+            <span class="w-7 text-center text-sm font-bold text-slate-800">${item.qty}</span>
+            <button type="button" onclick="updateQty('${escapeHtml(item.id)}', 1)"
+              class="w-7 h-7 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 flex items-center justify-center text-xs transition">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+            <button type="button" onclick="removeFromCart('${escapeHtml(item.id)}')" title="刪除商品"
+              class="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center text-xs ml-1 transition">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+
+      totalQtyEl.textContent = totalQty;
+      totalAmountEl.textContent = totalAmount.toLocaleString();
+      mobileBadge.textContent = totalQty;
+    }
+
+    // ==========================================
+    // 4. n8n Webhook 訂單送出與 Respond to Webhook 處理
+    // ==========================================
+    async function handleCheckout(event) {
+      event.preventDefault();
+
+      if (cart.length === 0) {
+        showAlert('warning', '購物車是空的', '請先將至少一項商品加入購物車後再進行結帳！');
+        return;
+      }
+
+      const submitBtn = document.getElementById('submit-btn');
+      const submitIcon = document.getElementById('submit-icon');
+      const submitText = document.getElementById('submit-text');
+
+      const customerData = {
+        name: document.getElementById('customer-name').value.trim(),
+        phone: document.getElementById('customer-phone').value.trim(),
+        email: document.getElementById('customer-email').value.trim(),
+        note: document.getElementById('customer-note').value.trim()
+      };
+
+      const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
+
+      const orderPayload = {
+        orderId: `ORD-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        customer: customerData,
+        items: cart.map(item => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.qty,
+          subtotal: item.price * item.qty
+        })),
+        summary: {
+          totalItems: totalItems,
+          totalAmount: totalAmount,
+          currency: 'TWD'
+        }
+      };
+
+      // 進入載入中狀態
+      submitBtn.disabled = true;
+      submitIcon.className = 'fa-solid fa-circle-notch fa-spin';
+      submitText.textContent = '訂單傳送與處理中...';
+      hideAlert();
+
+      try {
+        const response = await fetch(N8N_WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(orderPayload)
+        });
+
+        const responseText = await response.text();
+        let result = {};
+        try {
+          result = responseText ? JSON.parse(responseText) : {};
+        } catch (e) {
+          result = { message: responseText };
+        }
+
+        if (!response.ok || result.status === 'error' || result.status === 'fail') {
+          throw new Error(result.message || `伺服器回應錯誤 (${response.status})`);
+        }
+
+        const successMsg = result.message || '訂單已成功送出！我們將盡快為您處理。';
+        showAlert('success', '訂單建立成功', successMsg);
+
+        // 清空購物車與表單，並自動重新抓取最新庫存
+        clearCart();
+        document.getElementById('checkout-form').reset();
+        fetchProducts();
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+
+      } catch (error) {
+        console.error('送出訂單至 n8n 失敗:', error);
+        showAlert(
+          'error',
+          '訂單送出失敗',
+          `無法完成訂單送出：${error.message}\n請確認本機 n8n 服務 (localhost:5678) 已啟動、Webhook 正在監聽，且已開啟 CORS 允許來源。`
+        );
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } finally {
+        submitBtn.disabled = false;
+        submitIcon.className = 'fa-solid fa-paper-plane';
+        submitText.textContent = '確認送出訂單';
+      }
+    }
+
+    // ==========================================
+    // 5. Alert 提示視窗控制 & 工具函式
+    // ==========================================
+    function showAlert(type, title, message) {
+      const alertBox = document.getElementById('alert-box');
+      const alertIcon = document.getElementById('alert-icon');
+      const alertTitle = document.getElementById('alert-title');
+      const alertMessage = document.getElementById('alert-message');
+
+      alertBox.className = 'rounded-xl p-4 border shadow-sm transition-all duration-300 flex items-start justify-between gap-3';
+
+      if (type === 'success') {
+        alertBox.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-900');
+        alertIcon.className = 'fa-solid fa-circle-check text-emerald-600 mt-0.5 text-lg';
+      } else if (type === 'warning') {
+        alertBox.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-900');
+        alertIcon.className = 'fa-solid fa-triangle-exclamation text-amber-600 mt-0.5 text-lg';
+      } else {
+        alertBox.classList.add('bg-rose-50', 'border-rose-200', 'text-rose-900');
+        alertIcon.className = 'fa-solid fa-circle-xmark text-rose-600 mt-0.5 text-lg';
+      }
+
+      alertTitle.textContent = title;
+      alertMessage.textContent = message;
+      alertBox.classList.remove('hidden');
+    }
+
+    function hideAlert() {
+      document.getElementById('alert-box').classList.add('hidden');
+    }
+
+    function escapeHtml(unsafe) {
+      if (unsafe === null || unsafe === undefined) return '';
+      return String(unsafe)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>
